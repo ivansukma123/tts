@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text to Speech Indonesia - Diperbaiki</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        textarea {
+            width: 100%;
+            height: 250px;
+            padding: 15px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            resize: vertical;
+            box-sizing: border-box;
+            margin-bottom: 15px;
+        }
+        .settings-panel {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f1f1f1;
+            border-radius: 5px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .setting-item {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 200px;
+        }
+        .setting-item label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #444;
+        }
+        select, input[type="range"] {
+            padding: 8px;
+            font-size: 14px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            transition: background-color 0.3s;
+        }
+        #btn-play { background-color: #4CAF50; }
+        #btn-play:hover { background-color: #45a049; }
+        
+        #btn-pause { background-color: #ff9800; }
+        #btn-pause:hover { background-color: #e68a00; }
+        
+        #btn-stop { background-color: #f44336; }
+        #btn-stop:hover { background-color: #da190b; }
+        
+        .info {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #666;
+            background: #e7f3fe;
+            padding: 10px;
+            border-left: 4px solid #2196F3;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Pembaca Teks (Anti Macet)</h2>
+        
+        <textarea id="text-input" placeholder="Ketik atau tempel teks Anda di sini..."></textarea>
+        
+        <div class="settings-panel">
+            <div class="setting-item">
+                <label for="voice-select">Pilih Jenis Suara:</label>
+                <select id="voice-select">
+                    <option value="">Memuat suara...</option>
+                </select>
+            </div>
+            <div class="setting-item">
+                <label for="rate-input">Kecepatan Baca: <span id="rate-value">1</span>x</label>
+                <input type="range" id="rate-input" min="0.5" max="2" value="1" step="0.1">
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="btn-play" onclick="playText()">▶ Play / Resume</button>
+            <button id="btn-pause" onclick="pauseText()">⏸ Jeda</button>
+            <button id="btn-stop" onclick="stopText()">⏹ Stop</button>
+        </div>
+
+        <div class="info">
+            <strong>Info Penting:</strong> Jika Anda mengubah kecepatan atau jenis suara saat teks sedang dibacakan, suara akan otomatis berhenti. Silakan klik <strong>Play</strong> lagi untuk menerapkan pengaturan baru.
+        </div>
+    </div>
+
+    <script>
+        let synth = window.speechSynthesis;
+        let voices = [];
+        let currentUtterance = null; // Menyimpan objek suara di memori global agar browser tidak mematikannya tiba-tiba
+
+        const voiceSelect = document.getElementById('voice-select');
+        const rateInput = document.getElementById('rate-input');
+        const rateValue = document.getElementById('rate-value');
+
+        // Update angka kecepatan di layar
+        rateInput.addEventListener('input', function() {
+            rateValue.textContent = this.value;
+        });
+
+        // Jika user mengubah kecepatan atau suara, hentikan bacaan secara otomatis
+        // agar user bisa langsung menekan play dengan setting baru (tanpa refresh)
+        rateInput.addEventListener('change', stopText);
+        voiceSelect.addEventListener('change', stopText);
+
+        function populateVoiceList() {
+            voices = synth.getVoices();
+            voiceSelect.innerHTML = ''; 
+            
+            voices.sort((a, b) => {
+                if (a.lang === 'id-ID' && b.lang !== 'id-ID') return -1;
+                if (a.lang !== 'id-ID' && b.lang === 'id-ID') return 1;
+                return 0;
+            });
+
+            voices.forEach((voice) => {
+                const option = document.createElement('option');
+                option.textContent = `${voice.name} (${voice.lang})`;
+                option.setAttribute('data-lang', voice.lang);
+                option.setAttribute('data-name', voice.name);
+                
+                if (voice.lang === 'id-ID' && voice.default) {
+                    option.selected = true;
+                }
+                
+                voiceSelect.appendChild(option);
+            });
+        }
+
+        populateVoiceList();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = populateVoiceList;
+        }
+
+        function playText() {
+            // Jika sedang dijeda, lanjutkan saja
+            if (synth.paused) {
+                synth.resume();
+                return;
+            }
+
+            const textArea = document.getElementById('text-input');
+            const fullText = textArea.value;
+            
+            if (fullText.trim() === '') {
+                alert("Silakan masukkan teks terlebih dahulu!");
+                return;
+            }
+
+            // Bersihkan sisa proses sebelumnya untuk mencegah memori macet
+            stopText();
+
+            let textToRead = fullText;
+            const start = textArea.selectionStart;
+            const end = textArea.selectionEnd;
+
+            if (start !== end) {
+                textToRead = fullText.substring(start, end);
+            } else if (start > 0 && start < fullText.length) {
+                textToRead = fullText.substring(start);
+            }
+
+            currentUtterance = new SpeechSynthesisUtterance(textToRead);
+            currentUtterance.rate = parseFloat(rateInput.value);
+
+            const selectedVoiceName = voiceSelect.selectedOptions[0]?.getAttribute('data-name');
+            const selectedVoice = voices.find(v => v.name === selectedVoiceName);
+            if (selectedVoice) {
+                currentUtterance.voice = selectedVoice;
+            }
+            
+            // Jeda 50 milidetik sebelum memulai. Ini adalah trik wajib untuk 
+            // mencegah Google Chrome mengabaikan perintah Play setelah Stop.
+            setTimeout(() => {
+                synth.speak(currentUtterance);
+            }, 50);
+        }
+
+        function pauseText() {
+            if (synth.speaking && !synth.paused) {
+                synth.pause();
+            }
+        }
+
+        function stopText() {
+            // Trik anti-macet: Jika dihentikan saat sedang dijeda, browser sering error.
+            // Kita harus 'membangunkannya' (resume) sesaat sebelum membatalkannya (cancel).
+            if (synth.paused) {
+                synth.resume();
+            }
+            synth.cancel();
+        }
+    </script>
+
+</body>
+</html>
